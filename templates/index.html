@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Remindabot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #1a1a1a; color: white; }
+        h1 { color: #ff6b6b; text-align: center; }
+        .meal-card { background: #2a2a2a; border-radius: 10px; padding: 15px; margin: 10px 0; }
+        .meal-name { font-size: 14px; margin-bottom: 10px; color: #ccc; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin: 5px 0; }
+        .btn-upload { background: #4CAF50; color: white; }
+        .btn-snooze { background: #ff9800; color: white; }
+        .status { margin-top: 10px; padding: 10px; border-radius: 8px; text-align: center; display: none; }
+        .success { background: #4CAF50; }
+        .error { background: #f44336; }
+        input[type="file"] { display: none; }
+        .snooze-options { display: none; margin-top: 10px; }
+        .snooze-btn { background: #555; color: white; padding: 8px; border: none; border-radius: 6px; margin: 3px; cursor: pointer; }
+        .done-overlay { background: #4CAF50; opacity: 0.3; position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 10px; display: none; }
+    </style>
+</head>
+<body>
+    <h1>🤖 Remind Bot</h1>
+    <p style="text-align:center; color:#aaa;">Prove you did it or snooze it!</p>
+
+    {% for meal_id, meal_name in meals.items() %}
+    <div class="meal-card" id="card-{{ meal_id }}">
+        <div class="meal-name">{{ meal_name }}</div>
+        <input type="file" accept="image/*" capture="camera" id="photo-{{ meal_id }}">
+        <button class="btn btn-upload" onclick="document.getElementById('photo-{{ meal_id }}').click()">📸 Upload Photo</button>
+        <button class="btn btn-snooze" onclick="toggleSnooze('{{ meal_id }}')">😴 Can't Do It Now</button>
+        <div class="snooze-options" id="snooze-{{ meal_id }}">
+            <p style="color:#aaa; font-size:13px;">Remind me again in:</p>
+            <button class="snooze-btn" onclick="snooze('{{ meal_id }}', 30)">30 min</button>
+            <button class="snooze-btn" onclick="snooze('{{ meal_id }}', 60)">1 hour</button>
+            <button class="snooze-btn" onclick="snooze('{{ meal_id }}', 120)">2 hours</button>
+            <button class="snooze-btn" onclick="snooze('{{ meal_id }}', 180)">3 hours</button>
+        </div>
+        <div class="status" id="status-{{ meal_id }}"></div>
+    </div>
+
+    <script>
+        document.getElementById('photo-{{ meal_id }}').addEventListener('change', function() {
+            uploadPhoto('{{ meal_id }}', this);
+        });
+    </script>
+    {% endfor %}
+
+    <script>
+        function uploadPhoto(mealId, input) {
+            if (!input.files[0]) return;
+            let formData = new FormData();
+            formData.append('meal_id', mealId);
+            formData.append('photo', input.files[0]);
+            showStatus(mealId, '🔍 Verifying...', '');
+            fetch('/verify', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus(mealId, data.message, 'success');
+                        document.getElementById('card-' + mealId).style.opacity = '0.4';
+                    } else {
+                        showStatus(mealId, data.message, 'error');
+                    }
+                });
+        }
+
+        function toggleSnooze(mealId) {
+            let el = document.getElementById('snooze-' + mealId);
+            el.style.display = el.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function snooze(mealId, minutes) {
+            let formData = new FormData();
+            formData.append('meal_id', mealId);
+            formData.append('snooze_minutes', minutes);
+            fetch('/snooze', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    showStatus(mealId, data.message, 'success');
+                    document.getElementById('snooze-' + mealId).style.display = 'none';
+                });
+        }
+
+        function showStatus(mealId, message, type) {
+            let el = document.getElementById('status-' + mealId);
+            el.textContent = message;
+            el.className = 'status ' + type;
+            el.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
