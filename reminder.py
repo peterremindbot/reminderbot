@@ -73,16 +73,17 @@ WEEKEND_TASKS = [
 DATA_FILE = "data.json"
 
 def save_data():
+    import json
     with open(DATA_FILE, "w") as f:
-        import json
         json.dump({
             "streak": streak,
             "completed_meals": list(completed_meals),
-            "last_saved": datetime.now().strftime("%Y-%m-%d")
+            "last_saved": datetime.now().strftime("%Y-%m-%d"),
+            "custom_tasks": custom_tasks
         }, f)
 
 def load_data():
-    global streak, completed_meals
+    global streak, completed_meals, custom_tasks
     try:
         import json
         with open(DATA_FILE, "r") as f:
@@ -94,9 +95,12 @@ def load_data():
                 completed_meals = set(data.get("completed_meals", []))
             else:
                 completed_meals = set()
+            custom_tasks = data.get("custom_tasks", [])
         print(f"Loaded data — streak: {streak}")
     except FileNotFoundError:
         print("No save file found, starting fresh!")
+
+custom_tasks = []
 
 def send_text(meal_id, message):
     if paused:
@@ -181,6 +185,16 @@ def reset_meals():
     snooze_counts.clear()
     print("Meals reset for new day!")
 
+def schedule_custom_tasks():
+    for task in custom_tasks:
+        task_id = task["id"]
+        task_name = task["name"]
+        task_time = task["time"]
+        interval = task.get("interval", None)
+        schedule.every().day.at(task_time).do(send_text, task_id, f"⚠️ REMINDER: {task_name}")
+        if interval:
+            schedule.every(interval).seconds.do(send_text, task_id, f"🔴 STILL WAITING: {task_name}")
+
 def setup_tasks():
     today = datetime.now().weekday()
     tasks = WEEKEND_TASKS if today >= 5 else WEEKDAY_TASKS
@@ -192,6 +206,7 @@ def setup_tasks():
     schedule.every().day.at("22:00").do(send_daily_summary)
     schedule.every().day.at("00:00").do(reset_meals)
     schedule.every().day.at("08:00").do(send_streak_update)
+    schedule_custom_tasks()
 
 def run_scheduler():
     load_data()
@@ -203,7 +218,7 @@ def run_scheduler():
 
 @app.route('/')
 def index():
-    return render_template('index.html', meals=MEALS)
+    return render_template('index.html', meals=MEALS, custom_tasks=custom_tasks)
 
 @app.route('/pause', methods=['POST'])
 def pause_bot():
@@ -211,6 +226,41 @@ def pause_bot():
     paused = not paused
     status = "paused" if paused else "resumed"
     return jsonify({"success": True, "paused": paused, "message": f"Bot {status}!"})
+
+@app.route('/add_task', methods=['POST'])
+def add_task():
+    import uuid
+    task_name = request.form.get('task_name')
+    task_time = request.form.get('task_time')
+    nag = request.form.get('nag') == 'true'
+
+    if not task_name or not task_time:
+        return jsonify({"success": False, "message": "Task name and time are required!"})
+
+    task_id = "custom_" + str(uuid.uuid4())[:8]
+    task = {
+        "id": task_id,
+        "name": task_name,
+        "time": task_time,
+        "interval": 30 if nag else None
+    }
+    custom_tasks.append(task)
+    MEALS[task_id] = task_name
+    schedule.every().day.at(task_time).do(send_text, task_id, f"⚠️ REMINDER: {task_name}")
+    if nag:
+        schedule.every(30).seconds.do(send_text, task_id, f"🔴 STILL WAITING: {task_name}")
+    save_data()
+    return jsonify({"success": True, "message": f"Task added!", "task": task})
+
+@app.route('/remove_task', methods=['POST'])
+def remove_task():
+    task_id = request.form.get('task_id')
+    global custom_tasks
+    custom_tasks = [t for t in custom_tasks if t["id"] != task_id]
+    if task_id in MEALS:
+        del MEALS[task_id]
+    save_data()
+    return jsonify({"success": True, "message": "Task removed!"})
 
 @app.route('/verify', methods=['POST'])
 def verify_meal():
@@ -235,7 +285,7 @@ def verify_meal():
     if meal_id == "awake":
         prompt = "Does this photo show a person or a human face? Answer only YES or NO."
     else:
-        prompt = f"Look at this photo. Does it roughly match this meal: {meal_name}? It doesn't have to be perfect but it should look similar. Answer only YES or NO."
+        prompt = f"Look at this photo. Does it roughly match this meal or task: {meal_name}? Answer only YES or NO."
 
     message = client.messages.create(
         model="claude-haiku-4-5",
