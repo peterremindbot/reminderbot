@@ -26,6 +26,9 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 completed_meals = set()
 snoozed_meals = {}
+snooze_counts = {}
+streak = 0
+paused = False
 
 MEALS = {
     "awake": "Are you awake bud?",
@@ -37,7 +40,7 @@ MEALS = {
     "meal6": "🍫 Meal 6 - Before Bed: 1 Fairlife shake, 1 cup Greek yogurt to finish the container",
 }
 
-TASKS = [
+WEEKDAY_TASKS = [
     ("awake", "Are you awake bud?", "08:05", 30),
     ("meal1", "🍳 Meal 1 - Breakfast: 4 scrambled eggs in butter, oats cooked with Fairlife shake, banana sliced in", "08:30", 30),
     ("water1", "💧 Drink some water!", "09:30", None),
@@ -52,7 +55,24 @@ TASKS = [
     ("meal6", "🍫 Meal 6 - Before Bed: 1 Fairlife shake, 1 cup Greek yogurt to finish the container", "21:30", 30),
 ]
 
+WEEKEND_TASKS = [
+    ("awake", "Are you awake bud?", "09:05", 30),
+    ("meal1", "🍳 Meal 1 - Breakfast: 4 scrambled eggs in butter, oats cooked with Fairlife shake, banana sliced in", "09:30", 30),
+    ("water1", "💧 Drink some water!", "10:30", None),
+    ("meal2", "🥛 Meal 2 - Mid Morning: 1.5 cups yogurt, banana, 1 tbsp honey stirred in", "11:30", 30),
+    ("water2", "💧 Drink some water!", "12:45", None),
+    ("meal3", "🍚 Meal 3 - Lunch: 1lb ground beef, 2.5 cups white rice", "14:00", 30),
+    ("water3", "💧 Drink some water!", "15:30", None),
+    ("meal4", "🍳 Meal 4 - Afternoon Snack: 3 scrambled eggs, 2 slices whole wheat toast, butter in the pan", "17:00", 30),
+    ("water4", "💧 Drink some water!", "18:30", None),
+    ("meal5", "🍗 Meal 5 - Dinner: 1.5lbs chicken breast, 2 cups white rice, 1 tbsp olive oil on rice", "20:00", 30),
+    ("water5", "💧 Drink some water!", "21:15", None),
+    ("meal6", "🍫 Meal 6 - Before Bed: 1 Fairlife shake, 1 cup Greek yogurt to finish the container", "22:30", 30),
+]
+
 def send_text(meal_id, message):
+    if paused:
+        return
     if meal_id in completed_meals:
         return
     try:
@@ -67,17 +87,81 @@ def send_text(meal_id, message):
     except Exception as e:
         print(f"Error sending text: {e}")
 
+def send_motivational_message():
+    done_count = len([m for m in completed_meals if not m.startswith("water")])
+    total = 7
+    if done_count == 0:
+        msg = "💬 Hey Pete, you haven't checked off anything yet today. Let's get moving!"
+    elif done_count <= 2:
+        msg = f"💬 {done_count}/{total} meals done. You're just getting started — keep going!"
+    elif done_count <= 4:
+        msg = f"💬 {done_count}/{total} meals down. You're halfway there Pete, don't stop now!"
+    elif done_count <= 6:
+        msg = f"💬 {done_count}/{total} meals done. Almost there, finish strong!"
+    else:
+        msg = "💬 All meals done! You're an absolute machine Pete! 💪"
+    send_text("motivation", msg)
+
+def send_daily_summary():
+    global streak
+    meal_list = {
+        "awake": "Wake up check",
+        "meal1": "Breakfast",
+        "meal2": "Mid Morning",
+        "meal3": "Lunch",
+        "meal4": "Afternoon Snack",
+        "meal5": "Dinner",
+        "meal6": "Before Bed",
+    }
+    done = [name for meal_id, name in meal_list.items() if meal_id in completed_meals]
+    missed = [name for meal_id, name in meal_list.items() if meal_id not in completed_meals]
+
+    if len(done) == 7:
+        streak += 1
+    else:
+        streak = 0
+
+    summary = "📊 Daily Summary\n"
+    summary += f"✅ Done ({len(done)}/7):\n"
+    for item in done:
+        summary += f"  • {item}\n"
+    if missed:
+        summary += f"❌ Missed ({len(missed)}/7):\n"
+        for item in missed:
+            summary += f"  • {item}\n"
+    if len(done) == 7:
+        summary += f"\n🏆 Perfect day Pete! Streak: {streak} day{'s' if streak > 1 else ''}!"
+    elif len(done) >= 5:
+        summary += "\n💪 Solid day, keep it up!"
+    else:
+        summary += "\n😤 Do better tomorrow Pete!"
+
+    if streak > 0:
+        summary += f"\n🔥 Current streak: {streak} day{'s' if streak > 1 else ''}"
+
+    send_text("summary", summary)
+
+def send_streak_update():
+    if streak > 0:
+        send_text("streak", f"🔥 Good morning Pete! You're on a {streak} day streak! Don't break it!")
+
 def reset_meals():
     completed_meals.clear()
     snoozed_meals.clear()
+    snooze_counts.clear()
     print("Meals reset for new day!")
 
 def setup_tasks():
-    for meal_id, task, task_time, interval in TASKS:
+    today = datetime.now().weekday()
+    tasks = WEEKEND_TASKS if today >= 5 else WEEKDAY_TASKS
+    for meal_id, task, task_time, interval in tasks:
         schedule.every().day.at(task_time).do(send_text, meal_id, f"⚠️ REMINDER: {task}")
         if interval is not None:
             schedule.every(interval).seconds.do(send_text, meal_id, f"🔴 STILL WAITING: {task}")
+    schedule.every().day.at("14:00").do(send_motivational_message)
+    schedule.every().day.at("22:00").do(send_daily_summary)
     schedule.every().day.at("00:00").do(reset_meals)
+    schedule.every().day.at("08:00").do(send_streak_update)
 
 def run_scheduler():
     setup_tasks()
@@ -89,6 +173,13 @@ def run_scheduler():
 @app.route('/')
 def index():
     return render_template('index.html', meals=MEALS)
+
+@app.route('/pause', methods=['POST'])
+def pause_bot():
+    global paused
+    paused = not paused
+    status = "paused" if paused else "resumed"
+    return jsonify({"success": True, "paused": paused, "message": f"Bot {status}!"})
 
 @app.route('/verify', methods=['POST'])
 def verify_meal():
@@ -151,14 +242,34 @@ def verify_meal():
 def snooze_meal():
     meal_id = request.form.get('meal_id')
     snooze_minutes = int(request.form.get('snooze_minutes', 60))
+
+    snooze_counts[meal_id] = snooze_counts.get(meal_id, 0) + 1
     snoozed_meals[meal_id] = snooze_minutes
+
+    if snooze_counts[meal_id] > 1:
+        meal_name = MEALS.get(meal_id, "your meal")
+        roast_message = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=100,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Give me a short funny roast (1-2 sentences max) for someone who has snoozed their reminder to eat {meal_name} {snooze_counts[meal_id]} times. Be playful not mean."
+                }
+            ],
+        )
+        roast = roast_message.content[0].text.strip()
+        threading.Thread(target=send_text, args=(meal_id + "_roast", f"🔥 {roast}")).start()
+
     return jsonify({"success": True, "message": f"😴 Snoozed for {snooze_minutes} minutes!"})
 
 @app.route('/status', methods=['GET'])
 def get_status():
     return jsonify({
         "completed": list(completed_meals),
-        "snoozed": snoozed_meals
+        "snoozed": snoozed_meals,
+        "streak": streak,
+        "paused": paused
     })
 
 if __name__ == '__main__':

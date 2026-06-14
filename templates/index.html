@@ -1,28 +1,38 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Remindabot</title>
+    <title>Remind Bot</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #1a1a1a; color: white; }
         h1 { color: #ff6b6b; text-align: center; }
-        .meal-card { background: #2a2a2a; border-radius: 10px; padding: 15px; margin: 10px 0; }
+        .subtitle { text-align:center; color:#aaa; margin-bottom: 20px; }
+        .meal-card { background: #2a2a2a; border-radius: 10px; padding: 15px; margin: 10px 0; position: relative; }
         .meal-name { font-size: 14px; margin-bottom: 10px; color: #ccc; }
         .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin: 5px 0; }
         .btn-upload { background: #4CAF50; color: white; }
         .btn-snooze { background: #ff9800; color: white; }
+        .btn-pause { background: #e53935; color: white; width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 18px; cursor: pointer; margin-bottom: 20px; }
+        .btn-pause.paused { background: #4CAF50; }
         .status { margin-top: 10px; padding: 10px; border-radius: 8px; text-align: center; display: none; }
         .success { background: #4CAF50; }
         .error { background: #f44336; }
         input[type="file"] { display: none; }
         .snooze-options { display: none; margin-top: 10px; }
         .snooze-btn { background: #555; color: white; padding: 8px; border: none; border-radius: 6px; margin: 3px; cursor: pointer; }
-        .done-overlay { background: #4CAF50; opacity: 0.3; position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 10px; display: none; }
+        .completed { opacity: 0.4; }
+        .streak-banner { background: #ff6b6b; border-radius: 10px; padding: 12px; text-align: center; margin-bottom: 15px; font-size: 16px; display: none; }
+        .pause-banner { background: #e53935; border-radius: 10px; padding: 12px; text-align: center; margin-bottom: 15px; font-size: 16px; display: none; }
     </style>
 </head>
 <body>
     <h1>🤖 Remind Bot</h1>
-    <p style="text-align:center; color:#aaa;">Prove you did it or snooze it!</p>
+    <p class="subtitle">Prove you did it or snooze it!</p>
+
+    <div class="streak-banner" id="streak-banner"></div>
+    <div class="pause-banner" id="pause-banner">⏸️ Bot is paused — no texts will be sent</div>
+
+    <button class="btn-pause" id="pause-btn" onclick="togglePause()">⏸️ Pause Bot for Today</button>
 
     {% for meal_id, meal_name in meals.items() %}
     <div class="meal-card" id="card-{{ meal_id }}">
@@ -48,6 +58,31 @@
     {% endfor %}
 
     <script>
+        // Load status on page open
+        window.onload = function() {
+            fetch('/status')
+                .then(r => r.json())
+                .then(data => {
+                    // Mark completed meals
+                    data.completed.forEach(meal_id => {
+                        let card = document.getElementById('card-' + meal_id);
+                        if (card) card.classList.add('completed');
+                    });
+                    // Show streak
+                    if (data.streak > 0) {
+                        let banner = document.getElementById('streak-banner');
+                        banner.textContent = '🔥 Current streak: ' + data.streak + ' day' + (data.streak > 1 ? 's' : '') + '!';
+                        banner.style.display = 'block';
+                    }
+                    // Show pause state
+                    if (data.paused) {
+                        document.getElementById('pause-btn').classList.add('paused');
+                        document.getElementById('pause-btn').textContent = '▶️ Resume Bot';
+                        document.getElementById('pause-banner').style.display = 'block';
+                    }
+                });
+        };
+
         function uploadPhoto(mealId, input) {
             if (!input.files[0]) return;
             let formData = new FormData();
@@ -59,7 +94,7 @@
                 .then(data => {
                     if (data.success) {
                         showStatus(mealId, data.message, 'success');
-                        document.getElementById('card-' + mealId).style.opacity = '0.4';
+                        document.getElementById('card-' + mealId).classList.add('completed');
                     } else {
                         showStatus(mealId, data.message, 'error');
                     }
@@ -80,6 +115,24 @@
                 .then(data => {
                     showStatus(mealId, data.message, 'success');
                     document.getElementById('snooze-' + mealId).style.display = 'none';
+                });
+        }
+
+        function togglePause() {
+            fetch('/pause', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    let btn = document.getElementById('pause-btn');
+                    let banner = document.getElementById('pause-banner');
+                    if (data.paused) {
+                        btn.classList.add('paused');
+                        btn.textContent = '▶️ Resume Bot';
+                        banner.style.display = 'block';
+                    } else {
+                        btn.classList.remove('paused');
+                        btn.textContent = '⏸️ Pause Bot for Today';
+                        banner.style.display = 'none';
+                    }
                 });
         }
 
