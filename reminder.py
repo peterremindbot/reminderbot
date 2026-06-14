@@ -70,6 +70,34 @@ WEEKEND_TASKS = [
     ("meal6", "🍫 Meal 6 - Before Bed: 1 Fairlife shake, 1 cup Greek yogurt to finish the container", "22:30", 30),
 ]
 
+DATA_FILE = "data.json"
+
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        import json
+        json.dump({
+            "streak": streak,
+            "completed_meals": list(completed_meals),
+            "last_saved": datetime.now().strftime("%Y-%m-%d")
+        }, f)
+
+def load_data():
+    global streak, completed_meals
+    try:
+        import json
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
+            streak = data.get("streak", 0)
+            saved_date = data.get("last_saved", "")
+            today = datetime.now().strftime("%Y-%m-%d")
+            if saved_date == today:
+                completed_meals = set(data.get("completed_meals", []))
+            else:
+                completed_meals = set()
+        print(f"Loaded data — streak: {streak}")
+    except FileNotFoundError:
+        print("No save file found, starting fresh!")
+
 def send_text(meal_id, message):
     if paused:
         return
@@ -121,6 +149,8 @@ def send_daily_summary():
     else:
         streak = 0
 
+    save_data()
+
     summary = "📊 Daily Summary\n"
     summary += f"✅ Done ({len(done)}/7):\n"
     for item in done:
@@ -164,6 +194,7 @@ def setup_tasks():
     schedule.every().day.at("08:00").do(send_streak_update)
 
 def run_scheduler():
+    load_data()
     setup_tasks()
     print("Reminder bot is running...")
     while True:
@@ -234,6 +265,7 @@ def verify_meal():
 
     if "YES" in response_text:
         completed_meals.add(meal_id)
+        save_data()
         return jsonify({"success": True, "message": "✅ Great job Pete! Nagging stopped!"})
     else:
         return jsonify({"success": False, "message": "🤔 That doesn't look right. Try again or snooze!"})
