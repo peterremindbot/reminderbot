@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 import anthropic
 from PIL import Image
 import io
+import pytz
+from datetime import datetime
+import os
+os.environ['TZ'] = 'America/Denver'
 
 load_dotenv()
 
@@ -196,6 +200,7 @@ def schedule_custom_tasks():
             schedule.every(interval).seconds.do(send_text, task_id, f"🔴 STILL WAITING: {task_name}")
 
 def setup_tasks():
+    schedule.clear()
     today = datetime.now().weekday()
     tasks = WEEKEND_TASKS if today >= 5 else WEEKDAY_TASKS
     for meal_id, task, task_time, interval in tasks:
