@@ -14,6 +14,12 @@ import io
 import pytz
 from datetime import datetime
 import os
+from datetime import datetime
+import pytz
+
+def get_local_time():
+    mountain = pytz.timezone('America/Denver')
+    return datetime.now(mountain)
 
 load_dotenv()
 
@@ -214,8 +220,9 @@ def setup_tasks():
 
 def run_scheduler():
     load_data()
+    schedule.clear()
     setup_tasks()
-    print("Reminder bot is running...")
+    print(f"Reminder bot is running... Current time: {datetime.now().strftime('%H:%M')}")
     while True:
         schedule.run_pending()
         time.sleep(30)
