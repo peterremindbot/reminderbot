@@ -14,7 +14,7 @@ import io
 import pytz
 from datetime import datetime
 import os
-os.environ['TZ'] = 'Etc/GMT+6'
+os.environ['TZ'] = 'Etc/GMT+7'
 
 load_dotenv()
 
