@@ -14,7 +14,7 @@ import io
 import pytz
 from datetime import datetime
 import os
-os.environ['TZ'] = 'America/Denver'
+os.environ['TZ'] = 'Etc/GMT+6'
 
 load_dotenv()
 
